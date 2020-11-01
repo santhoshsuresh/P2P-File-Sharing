@@ -94,7 +94,8 @@ public class peerProcess {
             int curPeerId = Integer.parseInt(values.get(0));
             String curServerName = values.get(1);
             int curPort = Integer.parseInt(values.get(2));
-            boolean curHasFile = Boolean.parseBoolean(values.get(3));
+            boolean curHasFile = "1".equals(values.get(3));
+
             if(curPeerId == peerId) {
                 bitField = new int[numOfChunks];
                 if (curHasFile)
