@@ -35,4 +35,24 @@ public class peerConnected {
         System.out.println("Has file is " + hasFile);
         System.out.println("-----------------------------------\n");
     }
+
+    public int getPeerId() {
+        return peerId;
+    }
+
+    public String getServerName() {
+        return serverName;
+    }
+
+    public int getPortNumber() {
+        return portNumber;
+    }
+
+    public boolean isHasFile() {
+        return hasFile;
+    }
+
+    public int[] getBitField() {
+        return bitField;
+    }
 }
