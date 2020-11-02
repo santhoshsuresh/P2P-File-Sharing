@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -42,6 +43,7 @@ public class peerProcess {
 
         File dirName = new File(DIR_NAME + peerId);
         dirName.mkdir();
+        System.out.println("Log and Directory are created");
     }
 
     //Loads common config file data and calculates number of chunks
@@ -62,6 +64,7 @@ public class peerProcess {
 
         numOfChunks = calculateNumOfChunk(fileSize, pieceSize);
         bitField = new int[numOfChunks];
+        System.out.println("Common config file loaded");
         printCommonCfg();
     }
 
@@ -103,6 +106,9 @@ public class peerProcess {
                     Arrays.fill(bitField, 0);
                 portNumber = curPort;
                 hostName = curServerName;
+                File source = new File(fileName);
+                File dest = new File((DIR_NAME + peerId + "/" + fileName));
+                Files.copy(source.toPath(), dest.toPath());
             }
             else {
                 peerConnected curPeer = new peerConnected(curPeerId, curServerName, curPort, curHasFile, numOfChunks);
@@ -119,7 +125,9 @@ public class peerProcess {
     }
 
     public static void main(String[] args) throws IOException {
+        System.out.println("Program Execution Started");
         peerId = Integer.parseInt(args[0]);
+        System.out.println("Current Peer Id is " + peerId);
         createLogAndDir();
         loadCommonCfg();
         loadPeers();
@@ -200,9 +208,9 @@ public class peerProcess {
                 byte[] receiveBuffer = new byte[32];
 
                 System.out.println("Entering server accept zone for " + peerId);
-                System.out.println(connectedPeers.size() + "- Entering - " + (peerCount - 1));
 
                 while (connectedPeers.size() < peerCount - 1) {
+                    System.out.println(connectedPeers.size() + "- Entering - " + (peerCount - 1));
                     Socket socket = serverSocket.accept();
                     DataInputStream serverInput = new DataInputStream(socket.getInputStream());
                     serverInput.readFully(receiveBuffer);
