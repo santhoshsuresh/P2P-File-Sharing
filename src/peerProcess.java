@@ -2,7 +2,6 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -38,7 +37,7 @@ public class peerProcess {
     static String hostName;
 
     private static void createLogAndDir() throws IOException {
-        File logFile = new File(LOG_FILE_PREFIX + peerId);
+        File logFile = new File(LOG_FILE_PREFIX + peerId + LOG_FILE_SUFFIX);
         logFile.createNewFile();
 
         File dirName = new File(DIR_NAME + peerId);
@@ -116,7 +115,7 @@ public class peerProcess {
     private static String logPrefix() {
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
         LocalDateTime now = LocalDateTime.now();
-        return dtf.format(now) + ":Peer " + peerId;
+        return "[" + dtf.format(now) + "]: Peer " + peerId;
     }
 
     public static void main(String[] args) throws IOException {
@@ -138,7 +137,7 @@ public class peerProcess {
     private static class InitiateHandShake implements Runnable {
 
         //Create Hand Shake byte array with header data and peer id
-        private byte[] createHandShakeSegment(int peerId) {
+        private byte[] createHandShakeSegment() {
             String message = HANDSHAKE_HEADER + HANDSHAKE_ZEROS + peerId;
             return message.getBytes();
         }
@@ -146,11 +145,12 @@ public class peerProcess {
         @Override
         public void run() {
             try {
+                System.out.println("Entering client socket for " + peerId);
                 for(Map.Entry<Integer, peerConnected> entry: availablePeers.entrySet()) {
                     int curPeerId = entry.getKey();
-                    if (curPeerId > peerId)
+                    if (curPeerId >= peerId)
                         break;
-
+                    System.out.println(peerId + " trying to connect " + curPeerId);
                     //Extract peer details to connect
                     peerConnected curPeerObj = entry.getValue();
                     String hostName = curPeerObj.getServerName();
@@ -160,7 +160,7 @@ public class peerProcess {
                     Socket client_Socket = new Socket(hostName, portNumber);
                     DataOutputStream output = new DataOutputStream(client_Socket.getOutputStream());
                     output.flush();
-                    output.write(createHandShakeSegment(curPeerId));
+                    output.write(createHandShakeSegment());
                     client_Socket.close();
 
                     connectedPeers.put(curPeerId, 0);
@@ -168,6 +168,7 @@ public class peerProcess {
                     System.out.println(message);
                     insertLog(message);
                 }
+                System.out.println("Exiting client socket for " + peerId);
             } catch (UnknownHostException e) {
                 e.printStackTrace();
             } catch (IOException e) {
@@ -180,11 +181,15 @@ public class peerProcess {
     private static class ReceiveHandShake implements Runnable {
         private String[] parseMessage(byte[] buffer) {
             int len = buffer.length;
-            String[] output = new String[3];
-            ByteBuffer readBuffer = ByteBuffer.wrap(buffer);
-            output[0] = String.valueOf(readBuffer.get(buffer, 0, Math.min(len, 18)));
-            output[1] = String.valueOf(readBuffer.get(buffer, 18, Math.min(len - 18, 28)));
-            output[2] = String.valueOf(readBuffer.get(buffer, 28, Math.min(len - 28, 32)));
+            String[] output = new String[2];
+            System.out.println("Buffer size is " + len);
+            byte[] header = new byte[18];
+            byte[] peerId = new byte[4];
+            System.arraycopy(buffer, 0, header, 0, 18);
+            System.arraycopy(buffer, 28, peerId, 0, 4);
+
+            output[0] = new String(header);
+            output[1] = new String(peerId);
             return output;
         }
 
@@ -194,24 +199,27 @@ public class peerProcess {
                 ServerSocket serverSocket = new ServerSocket(portNumber);
                 byte[] receiveBuffer = new byte[32];
 
-                System.out.println("Entering accept zone for " + peerId);
-                System.out.println(connectedPeers.size() + "-" + (peerCount - 1));
+                System.out.println("Entering server accept zone for " + peerId);
+                System.out.println(connectedPeers.size() + "- Entering - " + (peerCount - 1));
 
-                while (connectedPeers.size() == peerCount - 1) {
+                while (connectedPeers.size() < peerCount - 1) {
                     Socket socket = serverSocket.accept();
                     DataInputStream serverInput = new DataInputStream(socket.getInputStream());
                     serverInput.readFully(receiveBuffer);
+
                     String[] parseInput = parseMessage(receiveBuffer);
-                    int curPeerId = Integer.parseInt(parseInput[2]);
+                    int curPeerId = Integer.parseInt(parseInput[1]);
+
                     if (parseInput[0].equals(HANDSHAKE_HEADER) && !connectedPeers.contains(curPeerId)) {
                         connectedPeers.put(curPeerId, 0);
                         String message = logPrefix() + " is connected from Peer " + curPeerId + ".";
                         insertLog(message);
                         System.out.println(message);
                     }
-                    System.out.println("Closing Server Socket for " + peerId);
                     socket.close();
                 }
+                System.out.println(connectedPeers.size() + " - Exiting - " + (peerCount - 1));
+                System.out.println("Exiting server accept zone for " + peerId);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -222,8 +230,8 @@ public class peerProcess {
     private static void insertLog(String message) {
         String Filename = LOG_FILE_PREFIX + peerId + LOG_FILE_SUFFIX;
         try {
-            BufferedWriter fWrite = new BufferedWriter(new FileWriter(fileName, true));
-            fWrite.write(message);
+            BufferedWriter fWrite = new BufferedWriter(new FileWriter(Filename, true));
+            fWrite.write(message + "\n");
             fWrite.close();
         }
         catch (IOException e) {

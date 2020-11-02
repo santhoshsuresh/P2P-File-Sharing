@@ -17,7 +17,7 @@ public class peerConnected {
 
         bitField = new int[numOfChunks];
         loadBitfield(hasFile);
-        printConfig();
+//        printConfig();
     }
 
     private void loadBitfield(boolean hasFile){
