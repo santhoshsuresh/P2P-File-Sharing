@@ -2,7 +2,6 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -43,12 +42,16 @@ public class peerProcess {
         File logFile = new File(LOG_FILE_PREFIX + peerId + LOG_FILE_SUFFIX);
         if(logFile.exists())
             logFile.delete();
-        logFile.createNewFile();
+
+        if (logFile.createNewFile())
+            System.out.println("Log file created");
 
         File dirName = new File(DIR_NAME + peerId);
         if (dirName.exists())
             dirName.delete();
-        dirName.mkdir();
+
+        if (dirName.mkdir())
+            System.out.println("Directory created");
         System.out.println("Log and Directory are created");
     }
 
@@ -107,21 +110,18 @@ public class peerProcess {
 
             if(curPeerId == peerId) {
                 bitField = new int[numOfChunks];
-                if (curHasFile)
+                if (curHasFile) {
                     Arrays.fill(bitField, 1);
-                else
-                    Arrays.fill(bitField, 0);
-                portNumber = curPort;
-                hostName = curServerName;
-                try {
                     File source = new File(fileName);
                     File dest = new File((DIR_NAME + peerId + "/" + fileName));
                     if(dest.exists())
                         dest.delete();
                     Files.copy(source.toPath(), dest.toPath());
-                } catch (FileAlreadyExistsException e) {
-                    e.printStackTrace();
                 }
+                else
+                    Arrays.fill(bitField, 0);
+                portNumber = curPort;
+                hostName = curServerName;
             }
             else {
                 peerConnected curPeer = new peerConnected(curPeerId, curServerName, curPort, curHasFile, numOfChunks);
@@ -150,12 +150,12 @@ public class peerProcess {
         loadPeers();
 
         //Send handshake message to other peers from peers connected map
-        Thread initiateConnRunnable = new Thread(new InitiateHandShake());
+        Thread initiateConnRunnable = new Thread(new ClientHandShakeRunnable());
         initiateConnRunnable.start();
 
         //Accept HandShake from other peers
         if(!isLastPeer){
-            Thread acceptConnection = new Thread(new ReceiveHandShake());
+            Thread acceptConnection = new Thread(new ServerHandshakeRunnable());
             acceptConnection.start();
         }
     }
@@ -163,7 +163,6 @@ public class peerProcess {
     private static String[] parseMessage(byte[] buffer) {
         int len = buffer.length;
         String[] output = new String[2];
-        System.out.println("Buffer size is " + len);
         byte[] header = new byte[18];
         byte[] peerId = new byte[4];
         System.arraycopy(buffer, 0, header, 0, 18);
@@ -181,7 +180,7 @@ public class peerProcess {
     }
 
     //Initialize handshake from Client
-    private static class InitiateHandShake implements Runnable {
+    private static class ClientHandShakeRunnable implements Runnable {
 
         @Override
         public void run() {
@@ -208,19 +207,19 @@ public class peerProcess {
                     System.out.println(message);
                     insertLog(message);
 
-//                    //Accept the response from the server
-//                    DataInputStream clientInputStream = new DataInputStream(client_Socket.getInputStream());
-//                    byte[] inputStream = new byte[32];
-//                    clientInputStream.readFully(inputStream);
-//                    String[] parseInput = parseMessage(inputStream);
-//                    int receivedPeerId = Integer.parseInt(parseInput[1]);
-//
-//                    if (parseInput[0].equals(HANDSHAKE_HEADER) && receivedPeerId == curPeerId) {
-//                        connectedPeers.put(curPeerId, 0);
-//                        message = logPrefix() + " completed hand shake with Peer " + curPeerId + ".";
-//                        insertLog(message);
-//                        System.out.println(message);
-//                    }
+                    //Accept the response from the server
+                    DataInputStream clientInputStream = new DataInputStream(client_Socket.getInputStream());
+                    byte[] inputStream = new byte[32];
+                    clientInputStream.readFully(inputStream);
+                    String[] parseInput = parseMessage(inputStream);
+                    int receivedPeerId = Integer.parseInt(parseInput[1]);
+
+                    if (parseInput[0].equals(HANDSHAKE_HEADER) && receivedPeerId == curPeerId) {
+                        connectedPeers.put(curPeerId, 0);
+                        message = logPrefix() + " completed hand shake with Peer " + curPeerId + ".";
+                        insertLog(message);
+                        System.out.println(message);
+                    }
 
                     //Close Socket after use
                     client_Socket.close();
@@ -235,7 +234,7 @@ public class peerProcess {
         }
     }
 
-    private static class ReceiveHandShake implements Runnable {
+    private static class ServerHandshakeRunnable implements Runnable {
 
         @Override
         public void run() {
@@ -253,6 +252,7 @@ public class peerProcess {
 
                     String[] parseInput = parseMessage(receiveBuffer);
                     int curPeerId = Integer.parseInt(parseInput[1]);
+                    System.out.println("Received segment from " + curPeerId);
 
                     if (parseInput[0].equals(HANDSHAKE_HEADER) && !connectedPeers.contains(curPeerId)) {
                         connectedPeers.put(curPeerId, 0);
@@ -261,12 +261,12 @@ public class peerProcess {
                         System.out.println(message);
                     }
 
-//                    //Send hand shake message back to the client
-//                    DataOutputStream serverOutput = new DataOutputStream(socket.getOutputStream());
-//                    serverOutput.flush();
-//                    serverOutput.write(createHandShakeSegment());
-//
-//                    socket.close();
+                    //Send hand shake message back to the client
+                    DataOutputStream serverOutput = new DataOutputStream(socket.getOutputStream());
+                    serverOutput.flush();
+                    serverOutput.write(createHandShakeSegment());
+
+                    socket.close();
                 }
                 System.out.println(connectedPeers.size() + " - Exiting - " + (peerCount - 1));
                 System.out.println("Exiting server accept zone for " + peerId);
