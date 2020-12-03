@@ -2,7 +2,6 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
-import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -29,8 +28,8 @@ public class peerProcess {
     private final static String HANDSHAKE_ZEROS = "0000000000";
 
     //Helper variables
-    private static final ConcurrentHashMap<Integer, peerConnected> availablePeers = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<Integer, Integer> connectedPeers = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, peerConnected> connectedPeers = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Integer, Integer> connectecPeerSet = new ConcurrentHashMap<>();
     static int numOfChunks = 0;
     static int[] bitField;
     static int peerCount = 0;
@@ -112,11 +111,8 @@ public class peerProcess {
                 bitField = new int[numOfChunks];
                 if (curHasFile) {
                     Arrays.fill(bitField, 1);
-                    File source = new File(fileName);
-                    File dest = new File((DIR_NAME + peerId + "/" + fileName));
-                    if(dest.exists())
-                        dest.delete();
-                    Files.copy(source.toPath(), dest.toPath());
+//                    Files.copy(source.toPath(), dest.toPath());
+                    splitFiles();
                 }
                 else
                     Arrays.fill(bitField, 0);
@@ -125,7 +121,7 @@ public class peerProcess {
             }
             else {
                 peerConnected curPeer = new peerConnected(curPeerId, curServerName, curPort, curHasFile, numOfChunks);
-                availablePeers.put(curPeerId, curPeer);
+                connectedPeers.put(curPeerId, curPeer);
             }
             lastPeerId = curPeerId;
             peerCount++;
@@ -139,6 +135,34 @@ public class peerProcess {
         DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
         LocalDateTime now = LocalDateTime.now();
         return "[" + dtf.format(now) + "]: Peer " + peerId;
+    }
+
+    private static void splitFiles(){
+        long curPieceSize = 0;
+        int curChunk = 1, readData;
+        try {
+            String fileHeader = fileName.split("\\.", 2)[0];
+//            System.out.println(fileHeader + "_" + fileName);
+            File source = new File(fileName);
+            FileInputStream fInputStream = new FileInputStream(source);
+            InputStream infile = new BufferedInputStream(fInputStream);
+            readData = infile.read();
+
+            while (readData != -1 && curChunk < numOfChunks) {
+                File dest = new File((DIR_NAME + peerId + "/" + fileHeader + curChunk + ".dat"));
+                OutputStream outfile = new BufferedOutputStream(new FileOutputStream(dest));
+                while (readData != -1 && curPieceSize < pieceSize) {
+                    outfile.write(readData);
+                    curPieceSize++;
+                    readData = infile.read();
+                }
+                curPieceSize = 0;
+                outfile.close();
+                curChunk++;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     public static void main(String[] args) throws IOException {
@@ -186,7 +210,7 @@ public class peerProcess {
         public void run() {
             try {
                 System.out.println("Entering client socket for " + peerId);
-                for(Map.Entry<Integer, peerConnected> entry: availablePeers.entrySet()) {
+                for(Map.Entry<Integer, peerConnected> entry: connectedPeers.entrySet()) {
                     int curPeerId = entry.getKey();
                     if (curPeerId >= peerId)
                         break;
@@ -202,7 +226,7 @@ public class peerProcess {
                     output.flush();
                     output.write(createHandShakeSegment());
 
-                    connectedPeers.put(curPeerId, 0);
+                    connectecPeerSet.put(curPeerId, 0);
                     String message = logPrefix() + " makes a connection to Peer " + curPeerId + ".";
                     System.out.println(message);
                     insertLog(message);
@@ -215,9 +239,10 @@ public class peerProcess {
                     int receivedPeerId = Integer.parseInt(parseInput[1]);
 
                     if (parseInput[0].equals(HANDSHAKE_HEADER) && receivedPeerId == curPeerId) {
-                        connectedPeers.put(curPeerId, 0);
+                        connectecPeerSet.put(curPeerId, 0);
                         message = logPrefix() + " completed hand shake with Peer " + curPeerId + ".";
                         insertLog(message);
+                        new Thread(new DataExchangeThread()).start();
                         System.out.println(message);
                     }
 
@@ -244,8 +269,8 @@ public class peerProcess {
 
                 System.out.println("Entering server accept zone for " + peerId);
 
-                while (connectedPeers.size() < peerCount - 1) {
-                    System.out.println(connectedPeers.size() + "- Entering - " + (peerCount - 1));
+                while (connectecPeerSet.size() < peerCount - 1) {
+                    System.out.println(connectecPeerSet.size() + "- Entering - " + (peerCount - 1));
                     Socket socket = serverSocket.accept();
                     DataInputStream serverInput = new DataInputStream(socket.getInputStream());
                     serverInput.readFully(receiveBuffer);
@@ -254,8 +279,8 @@ public class peerProcess {
                     int curPeerId = Integer.parseInt(parseInput[1]);
                     System.out.println("Received segment from " + curPeerId);
 
-                    if (parseInput[0].equals(HANDSHAKE_HEADER) && !connectedPeers.contains(curPeerId)) {
-                        connectedPeers.put(curPeerId, 0);
+                    if (parseInput[0].equals(HANDSHAKE_HEADER) && !connectecPeerSet.contains(curPeerId)) {
+                        connectecPeerSet.put(curPeerId, 0);
                         String message = logPrefix() + " is connected from Peer " + curPeerId + ".";
                         insertLog(message);
                         System.out.println(message);
@@ -268,7 +293,7 @@ public class peerProcess {
 
                     socket.close();
                 }
-                System.out.println(connectedPeers.size() + " - Exiting - " + (peerCount - 1));
+                System.out.println(connectecPeerSet.size() + " - Exiting - " + (peerCount - 1));
                 System.out.println("Exiting server accept zone for " + peerId);
             } catch (IOException e) {
                 e.printStackTrace();
@@ -286,6 +311,14 @@ public class peerProcess {
         }
         catch (IOException e) {
             System.out.println("Cannot open/write to file " + Filename);
+        }
+    }
+
+    private static class DataExchangeThread implements Runnable {
+
+        @Override
+        public void run() {
+
         }
     }
 }
