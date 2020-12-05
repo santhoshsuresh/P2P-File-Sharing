@@ -34,13 +34,15 @@ public class peerProcess {
     static final Map<Integer, peerConnected> connectedPeerMap = new ConcurrentHashMap<>();
     static final Map<Integer, Boolean> connectedPeerSet = new ConcurrentHashMap<>();
     static final Map<Integer, Double> peer_DownloadRate = new ConcurrentHashMap<>();
-    static final CopyOnWriteArrayList<Integer> interestedPeers = new CopyOnWriteArrayList<>();
+    static final List<Integer> interestedPeers = new CopyOnWriteArrayList<>();
+    static List<Integer> interestedButChokedPeers = new CopyOnWriteArrayList<>();
+    static List<Double> pieceRequested;
     static AtomicInteger optimisticallyUnchokedNeighbor = new AtomicInteger();
     static AtomicInteger completedPeers = new AtomicInteger(0);
 
     //PeerDetails
     static int numOfChunks = 0;
-    static int[] bitField;
+    static Map<Integer, Integer> bitField;
     static int peerCount = 0;
     static int portNumber;
     static String hostName;
@@ -81,7 +83,7 @@ public class peerProcess {
         pieceSize = Long.parseLong(values.get(5));
 
         numOfChunks = calculateNumOfChunk(fileSize, pieceSize);
-        bitField = new int[numOfChunks];
+        bitField = new ConcurrentHashMap<>(numOfChunks);
         System.out.println("Common config file loaded");
         printCommonCfg();
     }
@@ -115,26 +117,31 @@ public class peerProcess {
             int curPeerId = Integer.parseInt(values.get(0));
             String curServerName = values.get(1);
             int curPort = Integer.parseInt(values.get(2));
-            hasFile.set("1".equals(values.get(3)));
+            boolean curhasFile = "1".equals(values.get(3));
 
             if(curPeerId == peerId) {
-                bitField = new int[numOfChunks];
-                if (hasFile.get()) {
-                    Arrays.fill(bitField, 1);
-//                    Files.copy(source.toPath(), dest.toPath());
+                int fillValue = 0;
+                if (curhasFile) {
+                    fillValue = 1;
                     splitFiles();
-                    completedPeers.incrementAndGet();
                 }
-                else
-                    Arrays.fill(bitField, 0);
+                for(int i=0; i<numOfChunks; i++){
+                    bitField.put(i, fillValue);
+                }
                 portNumber = curPort;
                 hostName = curServerName;
+                hasFile.set(curhasFile);
+                System.out.println("has file is "+ hasFile);
             }
             else {
                 peerConnected curPeer = new peerConnected(curPeerId, curServerName, curPort, numOfChunks);
                 connectedPeerMap.put(curPeerId, curPeer);
             }
             lastPeerId = curPeerId;
+
+            if(curhasFile)
+                completedPeers.incrementAndGet();
+
             peerCount++;
         }
         if(peerId == lastPeerId){
@@ -183,6 +190,7 @@ public class peerProcess {
         createLogAndDir();
         loadCommonCfg();
         loadPeers();
+        pieceRequested = new CopyOnWriteArrayList<>(Collections.nCopies(numOfChunks, 0.0));
 
         //Send handshake message to other peers from peers connected map
         Thread initiateConnRunnable = new Thread(new ClientHandShakeRunnable());
@@ -193,6 +201,9 @@ public class peerProcess {
             Thread acceptConnection = new Thread(new ServerHandshakeRunnable());
             acceptConnection.start();
         }
+
+        Thread findBestNeigh = new Thread(new findBestNeighbors());
+        findBestNeigh.start();
     }
 
     private static String[] parseMessage(byte[] buffer) {
@@ -318,6 +329,60 @@ public class peerProcess {
         }
         catch (IOException e) {
             System.out.println("Cannot open/write to file " + Filename);
+        }
+    }
+
+    static class findBestNeighbors implements Runnable {
+
+        @Override
+        public void run() {
+            try {
+                while (completedPeers.get() <= peerCount) {
+                    int interestedPeerCount = interestedPeers.size();
+//                    System.out.println("Completed peers " + completedPeers.get() + " total peers is " + peerCount);
+//                    System.out.println("Interested peer size is " + interestedPeerCount + " and pref neigh count is " + numPreferredNeighbors);
+
+                    if (interestedPeerCount <= numPreferredNeighbors) {
+                        for (int nxtPeerId : interestedPeers) {
+                            System.out.println("Interested peer is " + nxtPeerId);
+                            peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
+                            nxtPeerObj.sendUnchoke();
+                        }
+                    } else if (hasFile.get()) {
+                        Random randIdx = new Random();
+
+                        for (int i = 0; i < numPreferredNeighbors; i++) {
+                            int nxtPeerIdx = randIdx.nextInt(interestedPeers.size());
+                            int nxtPeerId = interestedPeers.get(nxtPeerIdx);
+                            peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
+                            nxtPeerObj.sendUnchoke();
+                        }
+                    } else {
+                        List<Map.Entry<Integer, Double>> preferredPeers = new LinkedList<>(peer_DownloadRate.entrySet());
+                        List<Integer> chokedPeers = new ArrayList<>();
+                        // Sort the list
+                        preferredPeers.sort(Map.Entry.comparingByValue());
+
+                        for (int i = 0; i < preferredPeers.size(); i++) {
+                            int nxtPeerId = preferredPeers.get(i).getKey();
+                            peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
+                            if (i < numPreferredNeighbors) {
+                                nxtPeerObj.sendUnchoke();
+                            }
+                            else {
+                                nxtPeerObj.sendChoke();
+                                chokedPeers.add(nxtPeerId);
+                            }
+                        }
+                        interestedButChokedPeers = new CopyOnWriteArrayList<>(chokedPeers);
+                    }
+
+                    Thread.sleep(unChokingInterval*1000);
+                }
+            }
+            catch(IOException | InterruptedException e){
+                e.printStackTrace();
+            }
         }
     }
 }
