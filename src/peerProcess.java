@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class peerProcess {
-    static int peerId;
+    static AtomicInteger peerId = new AtomicInteger();
 
     //CommonConfig data
     static int numPreferredNeighbors;
@@ -26,7 +26,7 @@ public class peerProcess {
     private final static String PEER_CONFIG_FILE = "PeerInfoLocal.cfg";
     private final static String LOG_FILE_PREFIX = "log_peer_";
     private final static String LOG_FILE_SUFFIX = ".log";
-    private final static String DIR_NAME = "peer_";
+    final static String DIR_NAME = "peer_";
     private final static String HANDSHAKE_HEADER = "P2PFILESHARINGPROJ";
     private final static String HANDSHAKE_ZEROS = "0000000000";
 
@@ -110,7 +110,7 @@ public class peerProcess {
         File file = new File(PEER_CONFIG_FILE);
         BufferedReader br = new BufferedReader(new FileReader(file));
         String line;
-        int lastPeerId = peerId;
+        int lastPeerId = peerId.get();
         List<String> values;
         while ((line = br.readLine()) != null) {
             values = Arrays.asList(line.split(" "));
@@ -119,13 +119,13 @@ public class peerProcess {
             int curPort = Integer.parseInt(values.get(2));
             boolean curhasFile = "1".equals(values.get(3));
 
-            if(curPeerId == peerId) {
+            if(curPeerId == peerId.get()) {
                 int fillValue = 0;
                 if (curhasFile) {
                     fillValue = 1;
                     splitFiles();
                 }
-                for(int i=0; i<numOfChunks; i++){
+                for(int i=1; i<=numOfChunks; i++){
                     bitField.put(i, fillValue);
                 }
                 portNumber = curPort;
@@ -144,7 +144,7 @@ public class peerProcess {
 
             peerCount++;
         }
-        if(peerId == lastPeerId){
+        if(peerId.get() == lastPeerId){
             isLastPeer = true;
         }
     }
@@ -166,7 +166,7 @@ public class peerProcess {
             InputStream infile = new BufferedInputStream(fInputStream);
             readData = infile.read();
 
-            while (readData != -1 && curChunk < numOfChunks) {
+            while (readData != -1 && curChunk <= numOfChunks) {
                 File dest = new File((DIR_NAME + peerId + "/" + fileHeader + curChunk + ".dat"));
                 OutputStream outfile = new BufferedOutputStream(new FileOutputStream(dest));
                 while (readData != -1 && curPieceSize < pieceSize) {
@@ -185,7 +185,7 @@ public class peerProcess {
 
     public static void main(String[] args) throws IOException {
         System.out.println("Program Execution Started");
-        peerId = Integer.parseInt(args[0]);
+        peerId.set(Integer.parseInt(args[0]));
         System.out.println("Current Peer Id is " + peerId);
         createLogAndDir();
         loadCommonCfg();
@@ -233,7 +233,7 @@ public class peerProcess {
                 System.out.println("Entering client socket for " + peerId);
                 for(Map.Entry<Integer, peerConnected> entry: connectedPeerMap.entrySet()) {
                     int neighborPeerId = entry.getKey();
-                    if (neighborPeerId >= peerId)
+                    if (neighborPeerId >= peerId.get())
                         break;
                     System.out.println(peerId + " trying to connect " + neighborPeerId);
                     //Extract peer details to connect
@@ -337,14 +337,14 @@ public class peerProcess {
         @Override
         public void run() {
             try {
-                while (completedPeers.get() <= peerCount) {
+                while (completedPeers.get() < peerCount) {
                     int interestedPeerCount = interestedPeers.size();
-//                    System.out.println("Completed peers " + completedPeers.get() + " total peers is " + peerCount);
+                    System.out.println("Completed peers " + completedPeers.get() + " total peers is " + peerCount);
 //                    System.out.println("Interested peer size is " + interestedPeerCount + " and pref neigh count is " + numPreferredNeighbors);
 
                     if (interestedPeerCount <= numPreferredNeighbors) {
                         for (int nxtPeerId : interestedPeers) {
-                            System.out.println("Interested peer is " + nxtPeerId);
+//                            System.out.println("Interested peer is " + nxtPeerId);
                             peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
                             nxtPeerObj.sendUnchoke();
                         }
