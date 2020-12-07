@@ -361,9 +361,9 @@ public class peerProcess {
             try {
                 while (completedPeers.get() < peerCount) {
                     System.out.println("Interested peer map size is " + interestedPeersMap.size());
-                    List<Integer> interestedPeers = new ArrayList<>(interestedPeersMap.keySet());
+                    List<Integer> interestedPeers = new ArrayList<>();
                     for(int curPeerId: interestedPeersMap.keySet()){
-                        if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId)){
+                        if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId) == true){
                             interestedPeers.add(curPeerId);
                         }
                     }
@@ -382,8 +382,6 @@ public class peerProcess {
                         }
                         interestedButChokedPeers = new CopyOnWriteArrayList<>();
                     } else{
-//                        if (hasFile.get()) {
-
                         List<Integer> chokedPeers = new ArrayList<>();
                         Random randIdx = new Random();
 

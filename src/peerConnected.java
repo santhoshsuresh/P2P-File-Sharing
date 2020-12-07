@@ -82,7 +82,7 @@ class peerConnected {
                 sendBitField();
 
                 while (!hasConnectedPeerCompleted || !peerProcess.hasCompleted.get()) {
-//                    System.out.println("Waiting for socket input from " + connectedPeerId);
+                    System.out.println("Waiting for socket input from " + connectedPeerId);
                     int msgLen = inputStream.readInt();
                     byte[] message = new byte[msgLen];
 
@@ -95,7 +95,6 @@ class peerConnected {
                     calculateDownloadRate(startTime, endTime, msgLen);
 //                    System.out.println("length is " + msgLen + " type is " + msgType);
 //                    System.out.println("Message type received is " + msgType);
-                    System.out.println("Is " + connectedPeerId + " interested in me - " + peerProcess.interestedPeersMap.get(connectedPeerId));
 
                     if (msgType == BITFIELD_TYPE) {
                         byte[] payload = extractPayload(message, payloadSize);
@@ -186,6 +185,11 @@ class peerConnected {
                             if(hasParentPeerCompleted) {
                                 String logmsg = peerProcess.logPrefix() + " has downloaded the complete file";
                                 peerProcess.insertLog(logmsg);
+                                System.out.println(logmsg);
+                                for(peerConnected curPeerObj: peerProcess.connectedPeerMap.values()){
+                                    if(curPeerObj.isActive.get())
+                                        curPeerObj.sendNotInterested();
+                                }
                                 peerProcess.completedPeers.incrementAndGet();
                                 peerProcess.hasCompleted.set(true);
                             }
@@ -232,8 +236,8 @@ class peerConnected {
 
                 System.out.println("Connection completed for " + connectedPeerId);
             } catch (IOException e) {
-                System.out.println("Exception caught for peer " + connectedPeerId);
-//                e.printStackTrace();
+                System.out.println("Exception 1 caught for peer " + connectedPeerId);
+                e.printStackTrace();
             }
         }
     }
@@ -423,8 +427,8 @@ class peerConnected {
             outputStream.flush();
             outputStream.write(packet);
         } catch (IOException e) {
-            System.out.println("Exception " + e.getMessage() + " caught for peer " + connectedPeerId);
-//            e.printStackTrace();
+            System.out.println("Exception 2" + e.getMessage() + " caught for peer " + connectedPeerId);
+            e.printStackTrace();
         }
     }
 }
