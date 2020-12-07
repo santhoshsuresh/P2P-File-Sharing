@@ -360,9 +360,10 @@ public class peerProcess {
         public void run() {
             try {
                 while (completedPeers.get() < peerCount) {
+                    System.out.println("Interested peer map size is " + interestedPeersMap.size());
                     List<Integer> interestedPeers = new ArrayList<>(interestedPeersMap.keySet());
                     for(int curPeerId: interestedPeersMap.keySet()){
-                        if(interestedPeersMap.get(curPeerId)){
+                        if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId)){
                             interestedPeers.add(curPeerId);
                         }
                     }
@@ -370,7 +371,7 @@ public class peerProcess {
                     int interestedPeerCount = interestedPeers.size();
 
                     System.out.println("Completed peers " + completedPeers.get() + " total peers is " + peerCount);
-                    System.out.println("Interested peer size is " + interestedPeerCount + " and pref neigh count is " + numPreferredNeighbors);
+                    System.out.println("Interested peer count is " + interestedPeerCount + " and pref neigh count is " + numPreferredNeighbors);
                     StringBuilder logmsg = new StringBuilder(logPrefix() + " has the preferred neighbors");
 
                     if (interestedPeerCount <= numPreferredNeighbors) {

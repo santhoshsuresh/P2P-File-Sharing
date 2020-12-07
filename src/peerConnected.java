@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class peerConnected {
     int connectedPeerId;
@@ -21,7 +22,8 @@ class peerConnected {
     public DataOutputStream outputStream;
     boolean hasConnectedPeerCompleted;
     boolean isChoked = true;
-    
+    AtomicBoolean isActive = new AtomicBoolean(false);
+
     //Message Types
     public static int CHOKE_TYPE = 0;
     public static int UNCHOKE_TYPE = 1;
@@ -63,6 +65,7 @@ class peerConnected {
         this.webSocket = webSocket;
         inputStream = new DataInputStream(webSocket.getInputStream());
         outputStream = new DataOutputStream(webSocket.getOutputStream());
+        isActive.set(true);
         Thread peerDataExchange = new Thread(new DataExchangeUtil(this), "ThreadToPeer_"+connectedPeerId);
         peerDataExchange.start();
     }
@@ -92,6 +95,7 @@ class peerConnected {
                     calculateDownloadRate(startTime, endTime, msgLen);
 //                    System.out.println("length is " + msgLen + " type is " + msgType);
 //                    System.out.println("Message type received is " + msgType);
+                    System.out.println("Is " + connectedPeerId + " interested in me - " + peerProcess.interestedPeersMap.get(connectedPeerId));
 
                     if (msgType == BITFIELD_TYPE) {
                         byte[] payload = extractPayload(message, payloadSize);
@@ -189,7 +193,8 @@ class peerConnected {
                                 sendRequest();
 
                             for(peerConnected curPeerObj: peerProcess.connectedPeerMap.values()){
-                                curPeerObj.sendHave(pieceIdx);
+                                if(curPeerObj.isActive.get())
+                                    curPeerObj.sendHave(pieceIdx);
                             }
                         }
                     }
