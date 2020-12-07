@@ -82,157 +82,154 @@ class peerConnected {
                 sendBitField();
 
                 while (!hasConnectedPeerCompleted || !peerProcess.hasCompleted.get()) {
-                    System.out.println("Waiting for socket input from " + connectedPeerId);
-                    int msgLen = inputStream.readInt();
-                    byte[] message = new byte[msgLen];
+//                    System.out.println("Waiting for socket input from " + connectedPeerId);
 
-                    long startTime = System.currentTimeMillis();
-                    inputStream.readFully(message);
-                    long endTime = System.currentTimeMillis();
+                    if(inputStream.available() > 0) {
+                        int msgLen = inputStream.readInt();
+                        byte[] message = new byte[msgLen];
 
-                    int msgType = extractMessageType(message[0]);
-                    int payloadSize = msgLen-1;
-                    calculateDownloadRate(startTime, endTime, msgLen);
-//                    System.out.println("length is " + msgLen + " type is " + msgType);
-//                    System.out.println("Message type received is " + msgType);
+                        long startTime = System.currentTimeMillis();
+                        inputStream.readFully(message);
+                        long endTime = System.currentTimeMillis();
 
-                    if (msgType == BITFIELD_TYPE) {
-                        byte[] payload = extractPayload(message, payloadSize);
-                        connectedPeerBitField = convertBytesToInts(payload, payloadSize / 4);
-                        boolean hasFile = hasCompleted();
+                        int msgType = extractMessageType(message[0]);
+                        int payloadSize = msgLen - 1;
+                        calculateDownloadRate(startTime, endTime, msgLen);
 
-                        System.out.println("Received bitfield from " + connectedPeerId);
-                        if(hasFile && !peerProcess.hasFile.get()){
-                            hasConnectedPeerCompleted = true;
-                            System.out.println("Sending Interested to " + connectedPeerId);
-                            sendInterested();
-                        }
-                        else {
-                            sendNotInterested();
-                            System.out.println("Sending Not interested to " + connectedPeerId);
-                        }
-                    }
-
-                    else if(msgType == INTERESTED_TYPE){
-                        System.out.println("Received interested from " + connectedPeerId);
-                        peerProcess.interestedPeersMap.put(connectedPeerId, true);
-                        String logmsg = peerProcess.logPrefix() + " received the 'interested' message from " + connectedPeerId;
-                        peerProcess.insertLog(logmsg);
-                    }
-
-                    else if(msgType == NOTINTERESTED_TYPE){
-                        System.out.println("Received Not Interested from " + connectedPeerId);
-                        String logmsg = peerProcess.logPrefix() + " received the 'not interested' message from " + connectedPeerId;
-                        peerProcess.insertLog(logmsg);
-                        peerProcess.interestedPeersMap.put(connectedPeerId, false);
-                        if(peerProcess.optimisticallyUnchokedNeighbor.get() == connectedPeerId)
-                            peerProcess.optimisticallyUnchokedNeighbor.set(0);
-                    }
-
-                    else if(msgType == UNCHOKE_TYPE){
-                        System.out.println("Received Unchoke from " + connectedPeerId);
-                        String logmsg = peerProcess.logPrefix() + " is unchoked by " + connectedPeerId;
-                        peerProcess.insertLog(logmsg);
-                        sendRequest();
-                    }
-
-                    else if(msgType == CHOKE_TYPE){
-                        isChoked = true;
-                        String logmsg = peerProcess.logPrefix() + " is choked by " + connectedPeerId;
-                        peerProcess.insertLog(logmsg);
-                    }
-
-                    else if(msgType == REQUEST_TYPE){
-                        if(!isChoked){
+                        if (msgType == BITFIELD_TYPE) {
                             byte[] payload = extractPayload(message, payloadSize);
-                            int reqPiece = ByteBuffer.wrap(payload).getInt();
-                            sendPiece(reqPiece);
-                        }
-                    }
+                            connectedPeerBitField = convertBytesToInts(payload, payloadSize / 4);
 
-                    else if(msgType == PIECE_TYPE){
-                        byte[] payload = extractPayload(message, payloadSize);
-                        byte[] pieceIdxByte = new byte[4];
-                        System.arraycopy(payload, 0, pieceIdxByte, 0, 4);
-                        int pieceIdx = ByteBuffer.wrap(pieceIdxByte).getInt();
-                        System.out.println("Received piece " + pieceIdx + " from " + connectedPeerId);
-
-                        if(peerProcess.bitField.get(pieceIdx) == 0) {
-                            System.out.println("Downloading piece " + pieceIdx + " from " + connectedPeerId);
-                            byte[] pieceByte = new byte[payloadSize-4];
-                            System.arraycopy(payload, 4, pieceByte, 0, payloadSize-4);
-                            String path = getFilePath(pieceIdx);
-                            FileOutputStream ofStream = new FileOutputStream(path);
-                            ofStream.write(pieceByte);
-                            peerProcess.bitField.put(pieceIdx, 1);
-
-                            boolean hasParentPeerCompleted = true;
-                            int completedPieces = 0;
-                            for(int i: peerProcess.bitField.values()){
-                                if(i == 0){
-                                    hasParentPeerCompleted = false;
+                            System.out.println("Received bitfield from " + connectedPeerId);
+                            if (hasCompleteFile()) {
+                                hasConnectedPeerCompleted = true;
+                                if(!peerProcess.hasFile.get()) {
+                                    System.out.println("Sending Interested to " + connectedPeerId);
+                                    sendInterested();
                                 }
-                                else{
-                                    completedPieces++;
-                                }
+                            } else {
+                                sendNotInterested();
+                                System.out.println("Sending Not interested to " + connectedPeerId);
                             }
+                        }
 
-                            String logMsgBuilder = peerProcess.logPrefix() + " has downloaded the piece " + pieceIdx + " from " + connectedPeerId +
-                                    ". Now the number of pieces it has is " + completedPieces;
-                            peerProcess.insertLog(logMsgBuilder);
+                        else if (msgType == INTERESTED_TYPE) {
+                            System.out.println("Received interested from " + connectedPeerId);
+                            peerProcess.interestedPeersMap.put(connectedPeerId, true);
+                            String logmsg = peerProcess.logPrefix() + " received the 'interested' message from " + connectedPeerId;
+                            peerProcess.insertLog(logmsg);
+                        }
+
+                        else if (msgType == NOTINTERESTED_TYPE) {
+                            System.out.println("Received Not Interested from " + connectedPeerId);
+                            String logmsg = peerProcess.logPrefix() + " received the 'not interested' message from " + connectedPeerId;
+                            peerProcess.insertLog(logmsg);
+                            peerProcess.interestedPeersMap.put(connectedPeerId, false);
+                            if (peerProcess.optimisticallyUnchokedNeighbor.get() == connectedPeerId)
+                                peerProcess.optimisticallyUnchokedNeighbor.set(0);
+                        }
+
+                        else if (msgType == UNCHOKE_TYPE) {
+                            System.out.println("Received Unchoke from " + connectedPeerId);
+                            String logmsg = peerProcess.logPrefix() + " is unchoked by " + connectedPeerId;
+                            peerProcess.insertLog(logmsg);
+                            sendRequest();
+                        }
+
+                        else if (msgType == CHOKE_TYPE) {
+                            isChoked = true;
+                            String logmsg = peerProcess.logPrefix() + " is choked by " + connectedPeerId;
+                            peerProcess.insertLog(logmsg);
+                        }
+
+                        else if (msgType == REQUEST_TYPE) {
+                            if (!isChoked) {
+                                byte[] payload = extractPayload(message, payloadSize);
+                                int reqPiece = ByteBuffer.wrap(payload).getInt();
+                                sendPiece(reqPiece);
+                            }
+                        }
+
+                        else if (msgType == PIECE_TYPE) {
+                            byte[] payload = extractPayload(message, payloadSize);
+                            byte[] pieceIdxByte = new byte[4];
+                            System.arraycopy(payload, 0, pieceIdxByte, 0, 4);
+                            int pieceIdx = ByteBuffer.wrap(pieceIdxByte).getInt();
+                            System.out.println("Received piece " + pieceIdx + " from " + connectedPeerId);
+
+                            if (peerProcess.bitField.get(pieceIdx) == 0) {
+                                System.out.println("Downloading piece " + pieceIdx + " from " + connectedPeerId);
+                                byte[] pieceByte = new byte[payloadSize - 4];
+                                System.arraycopy(payload, 4, pieceByte, 0, payloadSize - 4);
+                                String path = getFilePath(pieceIdx);
+                                FileOutputStream ofStream = new FileOutputStream(path);
+                                ofStream.write(pieceByte);
+                                peerProcess.bitField.put(pieceIdx, 1);
+
+                                boolean hasParentPeerCompleted = true;
+                                int completedPieces = 0;
+                                for (int i : peerProcess.bitField.values()) {
+                                    if (i == 0) {
+                                        hasParentPeerCompleted = false;
+                                    } else {
+                                        completedPieces++;
+                                    }
+                                }
+
+                                String logMsgBuilder = peerProcess.logPrefix() + " has downloaded the piece " + pieceIdx + " from " + connectedPeerId +
+                                        ". Now the number of pieces it has is " + completedPieces;
+                                peerProcess.insertLog(logMsgBuilder);
 
 //                            System.out.println(peerProcess.peerId + " has completed - " + hasParentPeerCompleted);
-                            if(hasParentPeerCompleted) {
-                                String logmsg = peerProcess.logPrefix() + " has downloaded the complete file";
-                                peerProcess.insertLog(logmsg);
-                                System.out.println(logmsg);
-                                for(peerConnected curPeerObj: peerProcess.connectedPeerMap.values()){
-                                    if(curPeerObj.isActive.get())
-                                        curPeerObj.sendNotInterested();
+                                if (hasParentPeerCompleted) {
+                                    String logmsg = peerProcess.logPrefix() + " has downloaded the complete file";
+                                    peerProcess.insertLog(logmsg);
+                                    System.out.println(logmsg);
+                                    for (peerConnected curPeerObj : peerProcess.connectedPeerMap.values()) {
+                                        if (curPeerObj.isActive.get())
+                                            curPeerObj.sendNotInterested();
+                                    }
+                                    peerProcess.hasCompleted.set(true);
+                                } else
+                                    sendRequest();
+
+                                for (peerConnected curPeerObj : peerProcess.connectedPeerMap.values()) {
+                                    if (curPeerObj.isActive.get())
+                                        curPeerObj.sendHave(pieceIdx);
                                 }
-                                peerProcess.completedPeers.incrementAndGet();
-                                peerProcess.hasCompleted.set(true);
-                            }
-                            else
-                                sendRequest();
-
-                            for(peerConnected curPeerObj: peerProcess.connectedPeerMap.values()){
-                                if(curPeerObj.isActive.get())
-                                    curPeerObj.sendHave(pieceIdx);
                             }
                         }
-                    }
 
-                    else if(msgType == HAVE_TYPE){
-                        byte[] payload = extractPayload(message, payloadSize);
-                        byte[] pieceIdxByte = new byte[4];
-                        System.arraycopy(payload, 0, pieceIdxByte, 0, 4);
-                        int pieceIdx = ByteBuffer.wrap(pieceIdxByte).getInt();
-                        connectedPeerBitField[pieceIdx-1] = 1;
-                        System.out.println("Received have message from " + connectedPeerId + " for piece " + pieceIdx);
+                        else if (msgType == HAVE_TYPE) {
+                            byte[] payload = extractPayload(message, payloadSize);
+                            byte[] pieceIdxByte = new byte[4];
+                            System.arraycopy(payload, 0, pieceIdxByte, 0, 4);
+                            int pieceIdx = ByteBuffer.wrap(pieceIdxByte).getInt();
+                            connectedPeerBitField[pieceIdx - 1] = 1;
+                            System.out.println("Received have message from " + connectedPeerId + " for piece " + pieceIdx);
 
-                        String logmsg = peerProcess.logPrefix() + " received the ‘have’ message from " + connectedPeerId + " for the piece " + pieceIdx;
-                        peerProcess.insertLog(logmsg);
+                            String logmsg = peerProcess.logPrefix() + " received the ‘have’ message from " + connectedPeerId + " for the piece " + pieceIdx;
+                            peerProcess.insertLog(logmsg);
 
-                        if(hasCompleted()) {
-                            peerProcess.completedPeers.incrementAndGet();
-                            hasConnectedPeerCompleted = true;
-                            System.out.println(connectedPeerId + " has completed.");
-                            System.out.println("hasConnectedPeerCompleted value is " + hasConnectedPeerCompleted + " for " + connectedPeerId);
-                            System.out.println("peerProcess.hasCompleted.get() value is " + peerProcess.hasCompleted.get());
+                            if (hasCompleteFile()) {
+                                hasConnectedPeerCompleted = true;
+                                System.out.println(connectedPeerId + " has completed.");
+                                System.out.println("hasConnectedPeerCompleted value is " + hasConnectedPeerCompleted + " for " + connectedPeerId);
+                                System.out.println("peerProcess.hasCompleted.get() value is " + peerProcess.hasCompleted.get());
+                            }
+                            if (hasInterestingPieces())
+                                sendInterested();
                         }
-                        if(hasInterestingPieces())
-                            sendInterested();
-                    }
 
-                    else{
-                        System.out.println("Wrong message type received");
+                        else {
+                            System.out.println("Wrong message type received");
+                        }
                     }
                 }
-
-                inputStream.close();
-                outputStream.close();
-                webSocket.close();
+                peerProcess.completedPeers.incrementAndGet();
+//                inputStream.close();
+//                outputStream.close();
+//                webSocket.close();
 
                 System.out.println("Connection completed for " + connectedPeerId);
             } catch (IOException e) {
@@ -242,7 +239,7 @@ class peerConnected {
         }
     }
 
-    public synchronized boolean hasCompleted(){
+    public synchronized boolean hasCompleteFile(){
         for(int i: connectedPeerBitField){
             if(i == 0){
                 return false;
@@ -327,17 +324,17 @@ class peerConnected {
         return Byte.toUnsignedInt(data);
     }
 
-    public synchronized void sendInterested() throws IOException {
+    public synchronized void sendInterested() {
         byte[] packet = createPacket(INTERESTED_TYPE, null);
         sendPacket(packet);
     }
 
-    public synchronized void sendNotInterested() throws IOException {
+    public synchronized void sendNotInterested() {
         byte[] packet = createPacket(NOTINTERESTED_TYPE, null);
         sendPacket(packet);
     }
 
-    public synchronized void sendUnchoke() throws IOException {
+    public synchronized void sendUnchoke() {
         if(isChoked){
             isChoked = false;
             byte[] packet = createPacket(UNCHOKE_TYPE, null);
@@ -351,7 +348,7 @@ class peerConnected {
         }
     }
 
-    public synchronized void sendChoke() throws IOException {
+    public synchronized void sendChoke() {
         if(!isChoked){
             isChoked = true;
             byte[] packet = createPacket(CHOKE_TYPE, null);
@@ -360,7 +357,7 @@ class peerConnected {
         }
     }
 
-    public synchronized void sendRequest() throws IOException {
+    public synchronized void sendRequest() {
         List<Integer> availablePieces = new ArrayList<>();
 //        List<Integer> parentBitField = new ArrayList<>(peerProcess.bitField.values());
 //        List<Double> pieceRequestStatus = new ArrayList<>(peerProcess.pieceRequested);
@@ -408,7 +405,7 @@ class peerConnected {
         }
     }
 
-    public synchronized void sendHave(int havePiece) throws IOException{
+    public synchronized void sendHave(int havePiece) {
         System.out.println("Sending have piece is " + havePiece);
         byte[] pieceIdx = ByteBuffer.allocate(4).putInt(havePiece).array();
         byte[] packet = createPacket(HAVE_TYPE, pieceIdx);
