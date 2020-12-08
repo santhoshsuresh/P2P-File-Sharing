@@ -157,6 +157,7 @@ class peerConnected {
                             int pieceIdx = ByteBuffer.wrap(pieceIdxByte).getInt();
                             System.out.println("Received piece " + pieceIdx + " from " + connectedPeerId);
 
+                            // Receive the piece only if it is not available
                             if (peerProcess.bitField.get(pieceIdx) == 0) {
                                 System.out.println("Downloading piece " + pieceIdx + " from " + connectedPeerId);
                                 peerProcess.bitField.put(pieceIdx, 1);
@@ -181,15 +182,19 @@ class peerConnected {
                                         ". Now the number of pieces it has is " + completedPieces;
                                 peerProcess.insertLog(logMsgBuilder);
 
-//                            System.out.println(peerProcess.peerId + " has completed - " + hasParentPeerCompleted);
+                                // If the parent peer has completed, merge all the pieces and send not interested to all peers
                                 if (hasParentPeerCompleted) {
                                     String logmsg = peerProcess.logPrefix() + " has downloaded the complete file";
                                     peerProcess.insertLog(logmsg);
                                     System.out.println(logmsg);
+
+                                    combinePieces();
+
                                     for (peerConnected curPeerObj : peerProcess.connectedPeerMap.values()) {
                                         if (curPeerObj.isActive.get())
                                             curPeerObj.sendNotInterested();
                                     }
+
                                     peerProcess.hasCompleted.set(true);
                                 } else
                                     sendRequest();
@@ -228,15 +233,36 @@ class peerConnected {
                     }
                 }
                 peerProcess.completedPeers.incrementAndGet();
-                inputStream.close();
-                outputStream.close();
-                webSocket.close();
+//                inputStream.close();
+//                outputStream.close();
+//                webSocket.close();
 
                 System.out.println("Connection completed for " + connectedPeerId);
             } catch (IOException e) {
                 System.out.println("Exception 1 caught for peer " + connectedPeerId);
                 e.printStackTrace();
             }
+        }
+    }
+
+    public synchronized void combinePieces() throws IOException {
+        String dirPath = peerProcess.DIR_NAME + peerProcess.peerId.get();
+        File dir = new File(dirPath);
+
+        PrintWriter pw = new PrintWriter(dirPath + "/" + peerProcess.fileName);
+        String[] fileNames = dir.list();
+
+        System.out.println("Number of files are " + fileNames.length);
+        for (String fileName : fileNames) {
+            File f = new File(dir, fileName);
+            BufferedReader br = new BufferedReader(new FileReader(f));
+
+            String line = br.readLine();
+            while (line != null) {
+                pw.println(line);
+                line = br.readLine();
+            }
+            pw.flush();
         }
     }
 

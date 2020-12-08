@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -50,6 +51,7 @@ public class peerProcess {
     static boolean isLastPeer = false;
     static AtomicBoolean hasFile = new AtomicBoolean();
 
+    // Delete old directory and log files if exits and create new ones
     private static void createLogAndDir() throws IOException {
         File logFile = new File(LOG_FILE_PREFIX + peerId + LOG_FILE_SUFFIX);
         if(logFile.exists() && logFile.delete())
@@ -72,6 +74,7 @@ public class peerProcess {
         System.out.println("Log and Directory are created");
     }
 
+    // Recursive function to delete all old files in peers directory
     private static void deleteDir(File dirPath) {
         File[] oldFiles = dirPath.listFiles();
 
@@ -129,6 +132,7 @@ public class peerProcess {
         String line;
         int lastPeerId = peerId.get();
         List<String> values;
+
         while ((line = br.readLine()) != null) {
             values = Arrays.asList(line.split(" "));
             int curPeerId = Integer.parseInt(values.get(0));
@@ -138,6 +142,8 @@ public class peerProcess {
 
             if(curPeerId == peerId.get()) {
                 int fillValue = 0;
+
+                // If current peer has hasfile set to 1, copy the data file and create chunks
                 if (curhasFile) {
                     fillValue = 1;
                     splitFiles();
@@ -145,6 +151,7 @@ public class peerProcess {
                     insertLog(logmsg);
                     hasCompleted.set(true);
                 }
+
                 for(int i=1; i<=numOfChunks; i++){
                     bitField.put(i, fillValue);
                 }
@@ -176,15 +183,18 @@ public class peerProcess {
         int curChunk = 1, readData;
         try {
             String fileHeader = fileName.split("\\.", 2)[0];
-//            System.out.println(fileHeader + "_" + fileName);
             File source = new File(fileName);
+            File dest = new File(DIR_NAME + peerId + "/" + fileName);
+
+            Files.copy(source.toPath(), dest.toPath());
+
             FileInputStream fInputStream = new FileInputStream(source);
             InputStream infile = new BufferedInputStream(fInputStream);
             readData = infile.read();
 
             while (readData != -1 && curChunk <= numOfChunks) {
-                File dest = new File((DIR_NAME + peerId + "/" + fileHeader + curChunk + ".dat"));
-                OutputStream outfile = new BufferedOutputStream(new FileOutputStream(dest));
+                File destPiece = new File(DIR_NAME + peerId + "/" + fileHeader + curChunk + ".dat");
+                OutputStream outfile = new BufferedOutputStream(new FileOutputStream(destPiece));
                 while (readData != -1 && curPieceSize < pieceSize) {
                     outfile.write(readData);
                     curPieceSize++;
@@ -194,7 +204,10 @@ public class peerProcess {
                 outfile.close();
                 curChunk++;
             }
-        } catch (Exception e) {
+            infile.close();
+            fInputStream.close();
+        }
+        catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -218,13 +231,16 @@ public class peerProcess {
             acceptConnection.start();
         }
 
+        // Spawn a new thread to find best neighbors
         Thread findBestNeigh = new Thread(new findBestNeighbors());
         findBestNeigh.start();
 
+        // Spawn a new thread to find optimistically best neighbor
         Thread findOptimNeigh = new Thread(new findOptimisticallyBestNeighbors());
         findOptimNeigh.start();
     }
 
+    // Parse the header and peerId form handshake message
     private static String[] parseMessage(byte[] buffer) {
         String[] output = new String[2];
         byte[] header = new byte[18];
@@ -256,6 +272,7 @@ public class peerProcess {
                     if (neighborPeerId >= peerId.get())
                         continue;
                     System.out.println(peerId + " trying to connect " + neighborPeerId);
+
                     //Extract peer details to connect
                     peerConnected curPeerObj = entry.getValue();
                     String hostName = curPeerObj.getServerName();
@@ -267,7 +284,6 @@ public class peerProcess {
                     clientOutputStream.flush();
                     clientOutputStream.write(createHandShakeSegment());
 
-                    connectedPeerSet.put(neighborPeerId, true);
                     String message = logPrefix() + " makes a connection to Peer " + neighborPeerId + ".";
                     System.out.println(message);
                     insertLog(message);
@@ -281,6 +297,8 @@ public class peerProcess {
 
                     if (parseInput[0].equals(HANDSHAKE_HEADER) && receivedPeerId == neighborPeerId) {
                         connectedPeerSet.put(neighborPeerId, true);
+
+                        // Start the data exchange between current and selected neighboring peer
                         curPeerObj.startDataExchange(client_Socket);
                         System.out.println(message);
                     }
@@ -326,6 +344,8 @@ public class peerProcess {
                         serverOutputStream.flush();
                         serverOutputStream.write(createHandShakeSegment());
                         peerConnected neighborPeerObj = connectedPeerMap.get(neighborPeerId);
+
+                        // Start the data exchange between current and requested neighboring peer
                         neighborPeerObj.startDataExchange(server_Socket);
                     }
                 }
@@ -354,8 +374,13 @@ public class peerProcess {
 
         @Override
         public void run() {
+
+            // Terminate selection of neighbors when current and all neighbors have the complete file
             while (completedPeers.get() < peerCount-1 || !hasCompleted.get()) {
                 System.out.println("Interested peer map size is " + interestedPeersMap.size());
+                System.out.println("Completed neighbors " + completedPeers.get() + " out of " + (peerCount-1));
+
+                // Create a list to retreive all interested peers
                 List<Integer> interestedPeers = new ArrayList<>();
                 for(int curPeerId: interestedPeersMap.keySet()){
                     if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId) == true){
@@ -365,10 +390,10 @@ public class peerProcess {
 
                 int interestedPeerCount = interestedPeers.size();
 
-                System.out.println("Completed neighbors " + completedPeers.get() + " out of " + (peerCount-1));
                 System.out.println("Interested peer count is " + interestedPeerCount + " and pref neigh count is " + numPreferredNeighbors);
                 StringBuilder logmsg = new StringBuilder(logPrefix() + " has the preferred neighbors");
 
+                // Send unchoke to all peers if the count of interested peers < preferred neighbors count
                 if (interestedPeerCount <= numPreferredNeighbors) {
                     for (int nxtPeerId : interestedPeers) {
                         peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
@@ -376,7 +401,10 @@ public class peerProcess {
                         nxtPeerObj.sendUnchoke();
                     }
                     interestedButChokedPeers = new CopyOnWriteArrayList<>();
-                } else{
+                }
+
+                // Else sort the interested peers by download rate, unchoke the top K ones and choke the rest
+                else{
                     List<Integer> chokedPeers = new ArrayList<>();
                     Random randIdx = new Random();
 
@@ -434,6 +462,8 @@ public class peerProcess {
         @Override
         public void run() {
             try {
+
+                // Terminate selection of neighbors when current and all neighbors have the complete file
                 while (completedPeers.get() < peerCount-1 || !hasCompleted.get()) {
                     System.out.println("Size of interestedButChokedPeers is " + interestedButChokedPeers.size());
                     if(interestedButChokedPeers.size()>0){
