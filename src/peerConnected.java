@@ -159,12 +159,13 @@ class peerConnected {
 
                             if (peerProcess.bitField.get(pieceIdx) == 0) {
                                 System.out.println("Downloading piece " + pieceIdx + " from " + connectedPeerId);
+                                peerProcess.bitField.put(pieceIdx, 1);
                                 byte[] pieceByte = new byte[payloadSize - 4];
                                 System.arraycopy(payload, 4, pieceByte, 0, payloadSize - 4);
                                 String path = getFilePath(pieceIdx);
                                 FileOutputStream ofStream = new FileOutputStream(path);
                                 ofStream.write(pieceByte);
-                                peerProcess.bitField.put(pieceIdx, 1);
+                                ofStream.close();
 
                                 boolean hasParentPeerCompleted = true;
                                 int completedPieces = 0;
@@ -227,9 +228,9 @@ class peerConnected {
                     }
                 }
                 peerProcess.completedPeers.incrementAndGet();
-//                inputStream.close();
-//                outputStream.close();
-//                webSocket.close();
+                inputStream.close();
+                outputStream.close();
+                webSocket.close();
 
                 System.out.println("Connection completed for " + connectedPeerId);
             } catch (IOException e) {
@@ -406,10 +407,9 @@ class peerConnected {
     }
 
     public synchronized void sendHave(int havePiece) {
-        System.out.println("Sending have piece is " + havePiece);
         byte[] pieceIdx = ByteBuffer.allocate(4).putInt(havePiece).array();
         byte[] packet = createPacket(HAVE_TYPE, pieceIdx);
-        System.out.println("Sent have msg to " + connectedPeerId);
+        System.out.println("Sent have msg to " + connectedPeerId + " for the piece " + havePiece);
         sendPacket(packet);
     }
 
