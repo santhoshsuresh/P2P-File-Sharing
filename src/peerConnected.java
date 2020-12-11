@@ -88,9 +88,9 @@ class peerConnected {
                         int msgLen = inputStream.readInt();
                         byte[] message = new byte[msgLen];
 
-                        long startTime = System.currentTimeMillis();
+                        double startTime = System.nanoTime();
                         inputStream.readFully(message);
-                        long endTime = System.currentTimeMillis();
+                        double endTime = System.nanoTime();
 
                         int msgType = extractMessageType(message[0]);
                         int payloadSize = msgLen - 1;
@@ -161,8 +161,10 @@ class peerConnected {
                             if (peerProcess.bitField.get(pieceIdx) == 0) {
                                 System.out.println("Downloading piece " + pieceIdx + " from " + connectedPeerId);
                                 peerProcess.bitField.put(pieceIdx, 1);
+
                                 byte[] pieceByte = new byte[payloadSize - 4];
                                 System.arraycopy(payload, 4, pieceByte, 0, payloadSize - 4);
+
                                 String path = getFilePath(pieceIdx);
                                 FileOutputStream ofStream = new FileOutputStream(path);
                                 ofStream.write(pieceByte);
@@ -188,12 +190,8 @@ class peerConnected {
                                     peerProcess.insertLog(logmsg);
                                     System.out.println(logmsg);
 
-                                    combinePieces();
-
-                                    for (peerConnected curPeerObj : peerProcess.connectedPeerMap.values()) {
-                                        if (curPeerObj.isActive.get())
-                                            curPeerObj.sendNotInterested();
-                                    }
+//                                    combinePieces();
+                                    System.out.println("Size of connectedPeerMap is " + peerProcess.connectedPeerMap.size());
 
                                     peerProcess.hasCompleted.set(true);
                                 } else
@@ -219,9 +217,10 @@ class peerConnected {
 
                             if (hasCompleteFile()) {
                                 hasConnectedPeerCompleted = true;
+                                peerProcess.interestedPeersMap.put(connectedPeerId, false);
+                                if (peerProcess.optimisticallyUnchokedNeighbor.get() == connectedPeerId)
+                                    peerProcess.optimisticallyUnchokedNeighbor.set(0);
                                 System.out.println(connectedPeerId + " has completed.");
-                                System.out.println("hasConnectedPeerCompleted value is " + hasConnectedPeerCompleted + " for " + connectedPeerId);
-                                System.out.println("peerProcess.hasCompleted.get() value is " + peerProcess.hasCompleted.get());
                             }
                             if (hasInterestingPieces())
                                 sendInterested();
@@ -233,11 +232,9 @@ class peerConnected {
                     }
                 }
                 peerProcess.completedPeers.incrementAndGet();
-//                inputStream.close();
-//                outputStream.close();
-//                webSocket.close();
 
                 System.out.println("Connection completed for " + connectedPeerId);
+
             } catch (IOException e) {
                 System.out.println("Exception 1 caught for peer " + connectedPeerId);
                 e.printStackTrace();
@@ -249,21 +246,31 @@ class peerConnected {
         String dirPath = peerProcess.DIR_NAME + peerProcess.peerId.get();
         File dir = new File(dirPath);
 
-        PrintWriter pw = new PrintWriter(dirPath + "/" + peerProcess.fileName);
-        String[] fileNames = dir.list();
+        File destFile = new File(dirPath + "/" + peerProcess.fileName);
+        FileWriter fstream = new FileWriter(destFile, true);
+        BufferedWriter mergeFile = new BufferedWriter(fstream);
 
-        System.out.println("Number of files are " + fileNames.length);
-        for (String fileName : fileNames) {
-            File f = new File(dir, fileName);
-            BufferedReader br = new BufferedReader(new FileReader(f));
+//        PrintWriter pw = new PrintWriter(dirPath + "/" + peerProcess.fileName)
 
-            String line = br.readLine();
-            while (line != null) {
-                pw.println(line);
-                line = br.readLine();
+        for (int curChunk=1; curChunk <= numOfChunks; curChunk++) {
+            String fileHeader = peerProcess.fileName.split("\\.", 2)[0];
+            File curFile = new File(peerProcess.DIR_NAME + peerProcess.peerId + "/" + fileHeader + curChunk + ".dat");
+            System.out.println("File merging is " + curFile);
+            FileInputStream fis = new FileInputStream(curFile);
+            BufferedReader br = new BufferedReader(new InputStreamReader(fis));
+
+            String aLine;
+            while ((aLine = br.readLine()) != null) {
+                mergeFile.write(aLine);
+                mergeFile.newLine();
             }
-            pw.flush();
+
+            br.close();
+            fis.close();
         }
+        mergeFile.close();
+
+        System.out.println("Merging completed");
     }
 
     public synchronized boolean hasCompleteFile(){
@@ -283,9 +290,9 @@ class peerConnected {
         return false;
     }
 
-    public synchronized void calculateDownloadRate(long startTime, long endTime, int msgLength){
-        double sec = (endTime - startTime) / 1000F;
-        Double downloadRate = ((double) (msgLength + 1) / sec);
+    public synchronized void calculateDownloadRate(double startTime, double endTime, int msgLength){
+        double diff = (endTime - startTime) / 1000F;
+        double downloadRate = msgLength / diff;
         peerProcess.peer_DownloadRate.put(connectedPeerId, downloadRate);
     }
 
@@ -386,13 +393,12 @@ class peerConnected {
 
     public synchronized void sendRequest() {
         List<Integer> availablePieces = new ArrayList<>();
-//        List<Integer> parentBitField = new ArrayList<>(peerProcess.bitField.values());
-//        List<Double> pieceRequestStatus = new ArrayList<>(peerProcess.pieceRequested);
+        List<Double> pieceRequestStatus = new ArrayList<>(peerProcess.pieceRequested);
 
         for(int i=1; i<=numOfChunks; i++){
-            double curTime = System.currentTimeMillis() / 1000F;
-            if(peerProcess.bitField.get(i) == 0 && connectedPeerBitField[i-1] == 1){
-//                    && (curTime - pieceRequestStatus.get(i)) > 2.0) {
+            double curTime = System.nanoTime();
+            if(peerProcess.bitField.get(i) == 0 && connectedPeerBitField[i-1] == 1
+                    && (curTime - pieceRequestStatus.get(i-1)) > 10.0) {
                 availablePieces.add(i);
             }
         }
@@ -402,8 +408,7 @@ class peerConnected {
             Random rand = new Random();
             int idx = rand.nextInt(availablePieces.size());
             int piece = availablePieces.get(idx);
-            System.out.println("Selected piece is " + piece + " and its index is " + idx);
-//            peerProcess.pieceRequested.set(piece, (double) (System.currentTimeMillis() / 1000F));
+            peerProcess.pieceRequested.set(piece-1, (double) (System.currentTimeMillis()));
 
             byte[] pieceBytes = ByteBuffer.allocate(4).putInt(piece).array();
             byte[] packet = createPacket(REQUEST_TYPE, pieceBytes);
@@ -450,7 +455,7 @@ class peerConnected {
             outputStream.flush();
             outputStream.write(packet);
         } catch (IOException e) {
-            System.out.println("Exception 2" + e.getMessage() + " caught for peer " + connectedPeerId);
+            System.out.println("Exception 2 " + e.getMessage() + " caught for peer " + connectedPeerId);
             e.printStackTrace();
         }
     }

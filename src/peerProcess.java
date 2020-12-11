@@ -78,11 +78,13 @@ public class peerProcess {
     private static void deleteDir(File dirPath) {
         File[] oldFiles = dirPath.listFiles();
 
-        for (File toBeDeletedFiles: oldFiles) {
-            if (toBeDeletedFiles.isDirectory()) {
-                deleteDir(toBeDeletedFiles);
+        if (oldFiles != null) {
+            for (File toBeDeletedFiles: oldFiles) {
+                if (toBeDeletedFiles.isDirectory()) {
+                    deleteDir(toBeDeletedFiles);
+                }
+                toBeDeletedFiles.delete();
             }
-            toBeDeletedFiles.delete();
         }
     }
 
@@ -212,7 +214,7 @@ public class peerProcess {
         }
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         System.out.println("Program Execution Started");
         peerId.set(Integer.parseInt(args[0]));
         System.out.println("Current Peer Id is " + peerId);
@@ -238,6 +240,13 @@ public class peerProcess {
         // Spawn a new thread to find optimistically best neighbor
         Thread findOptimNeigh = new Thread(new findOptimisticallyBestNeighbors());
         findOptimNeigh.start();
+
+        while (completedPeers.get() < peerCount-1 || !hasCompleted.get()) {
+            Thread.sleep(1000);
+        }
+        insertLog("System Exiting");
+        System.out.println("System Exiting");
+        System.exit(0);
     }
 
     // Parse the header and peerId form handshake message
@@ -351,6 +360,7 @@ public class peerProcess {
                 }
                 System.out.println(connectedPeerSet.size() + " - Exiting - " + (peerCount - 1));
                 System.out.println("Exiting server accept zone for " + peerId);
+
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -383,7 +393,7 @@ public class peerProcess {
                 // Create a list to retreive all interested peers
                 List<Integer> interestedPeers = new ArrayList<>();
                 for(int curPeerId: interestedPeersMap.keySet()){
-                    if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId) == true){
+                    if(interestedPeersMap.containsKey(curPeerId) && interestedPeersMap.get(curPeerId)){
                         interestedPeers.add(curPeerId);
                     }
                 }
@@ -397,14 +407,14 @@ public class peerProcess {
                 if (interestedPeerCount <= numPreferredNeighbors) {
                     for (int nxtPeerId : interestedPeers) {
                         peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
-                        logmsg.append(" " + nxtPeerId + ",");
+                        logmsg.append(" ").append(nxtPeerId).append(",");
                         nxtPeerObj.sendUnchoke();
                     }
                     interestedButChokedPeers = new CopyOnWriteArrayList<>();
                 }
 
                 // Else sort the interested peers by download rate, unchoke the top K ones and choke the rest
-                else{
+                else if(hasCompleted.get()){
                     List<Integer> chokedPeers = new ArrayList<>();
                     Random randIdx = new Random();
 
@@ -412,7 +422,7 @@ public class peerProcess {
                         int nxtPeerIdx = randIdx.nextInt(interestedPeers.size());
                         int nxtPeerId = interestedPeers.get(nxtPeerIdx);
                         peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
-                        logmsg.append(" " + nxtPeerId + ",");
+                        logmsg.append(" ").append(nxtPeerId).append(",");
                         nxtPeerObj.sendUnchoke();
                         interestedPeers.remove(nxtPeerIdx);
                     }
@@ -423,27 +433,29 @@ public class peerProcess {
                     }
                     interestedButChokedPeers = new CopyOnWriteArrayList<>(chokedPeers);
                 }
-//                    else {
-//                        List<Map.Entry<Integer, Double>> preferredPeers = new LinkedList<>(peer_DownloadRate.entrySet());
-//                        List<Integer> chokedPeers = new ArrayList<>();
-//                        // Sort the list
-//                        preferredPeers.sort(Map.Entry.comparingByValue());
-//
-//                        for (int i = 0; i < preferredPeers.size(); i++) {
-//                            int nxtPeerId = preferredPeers.get(i).getKey();
-//                            peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
-//                            if (i < numPreferredNeighbors) {
-//                                nxtPeerObj.sendUnchoke();
-//                                logmsg.append(" " + nxtPeerId + ",");
-//                            }
-//                            else {
-//                                nxtPeerObj.sendChoke();
-//                                chokedPeers.add(nxtPeerId);
-//                            }
-//                        }
-//                        System.out.println("Size of interested but choked neighbors are " + chokedPeers.size());
-//                        interestedButChokedPeers = new CopyOnWriteArrayList<>(chokedPeers);
-//                    }
+
+                else {
+                    List<Map.Entry<Integer, Double>> preferredPeers = new LinkedList<>(peer_DownloadRate.entrySet());
+                    List<Integer> chokedPeers = new ArrayList<>();
+                    // Sort the list
+                    preferredPeers.sort(Map.Entry.comparingByValue(Comparator.reverseOrder()));
+//                    System.out.println("sorted order is " + preferredPeers);
+
+                    for (int i = 0; i < preferredPeers.size(); i++) {
+                        int nxtPeerId = preferredPeers.get(i).getKey();
+                        peerConnected nxtPeerObj = connectedPeerMap.get(nxtPeerId);
+                        if (i < numPreferredNeighbors) {
+                            nxtPeerObj.sendUnchoke();
+                            logmsg.append(" " + nxtPeerId + ",");
+                        }
+                        else {
+                            nxtPeerObj.sendChoke();
+                            chokedPeers.add(nxtPeerId);
+                        }
+                    }
+                    System.out.println("Size of interested but choked neighbors are " + chokedPeers.size());
+                    interestedButChokedPeers = new CopyOnWriteArrayList<>(chokedPeers);
+                }
                 logmsg.setLength(logmsg.length() - 1);
                 insertLog(logmsg.toString());
                 System.out.println(logmsg.toString());
